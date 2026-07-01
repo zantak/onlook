@@ -1,10 +1,10 @@
-delete from storage.objects where bucket_id = 'file_transfer';
-delete from storage.buckets where id = 'file_transfer';
-
+-- ponytail: direct DELETE on storage.objects is blocked by newer supabase storage;
+-- on a fresh DB it was a no-op anyway. Use idempotent upsert instead of delete+insert.
 insert into storage.buckets
   (id, name, public)
 values
-  ('file_transfer', 'file_transfer', false);
+  ('file_transfer', 'file_transfer', false)
+on conflict (id) do update set name = excluded.name, public = excluded.public;
 
 -- Allow authenticated users to select only their own files from file_transfer
 drop policy if exists "file_transfer_select_policy" on storage.objects;

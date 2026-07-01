@@ -18,7 +18,7 @@ const API_KEYS: Record<string, ApiKeyConfig> = {
     OPENROUTER_API_KEY: {
         name: 'OPENROUTER_API_KEY',
         message: 'Enter your OpenRouter API key:',
-        required: true,
+        required: false, // ponytail: Option B uses Claude direct + Minimax, OpenRouter not required
     },
 };
 

@@ -1,3 +1,9 @@
+# ponytail: ZTK-BF deployment note
+# The supabase CLI does not support a per-service `host` field for port publishing
+# (it always publishes on 0.0.0.0). On ZTK-BF, the loopback-only constraint is enforced
+# out-of-band via iptables (nftables INPUT chain dropping non-loopback to 54321-54328)
+# — see the onlook deploy runbook. Tests/clones outside ZTK-BF do not need the rule.
+
 project_id = "onlook-web"
 
 [api]
@@ -10,8 +16,10 @@ max_rows = 100
 [auth]
 site_url = "https://onlook.com"
 additional_redirect_urls = [
-    "http://localhost:3000",
-    "http://localhost:3000/auth/callback",
+    "http://localhost:3002",
+    "http://127.0.0.1:3002",
+    "http://localhost:3002/auth/callback",
+    "http://127.0.0.1:3002/auth/callback",
 ]
 jwt_expiry = 36000
 
@@ -38,6 +46,12 @@ enabled = true
 port = 54327
 vector_port = 54328
 backend = "postgres"
+
+# ponytail: edge runtime disabled for local dev — editor/chat/CSB don't need Supabase
+# edge functions, and its Deno cache write is blocked by SELinux enforcing on ZTK-BF.
+# Re-enable if a function is actually needed locally.
+[edge_runtime]
+enabled = false
 
 [functions.stripe-webhook]
 verify_jwt = false
