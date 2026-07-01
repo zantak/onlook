@@ -1,6 +1,7 @@
 'use client';
 
-import { MODEL_MAX_TOKENS, OPENROUTER_MODELS } from '@onlook/models';
+import { useEditorEngine } from '@/components/store/editor';
+import { MODEL_MAX_TOKENS } from '@onlook/models';
 import {
     Context,
     ContextCacheUsage,
@@ -14,12 +15,13 @@ import {
     ContextTrigger
 } from '@onlook/ui/ai-elements/context';
 import type { LanguageModelUsage } from 'ai';
+import { observer } from 'mobx-react-lite';
 import { useMemo } from 'react';
 
-export const ChatContextWindow = ({ usage }: { usage: LanguageModelUsage }) => {
+export const ChatContextWindow = observer(({ usage }: { usage: LanguageModelUsage }) => {
+    const editorEngine = useEditorEngine();
     const showCost = false;
-    // Hardcoded for now, but should be dynamic based on the model used
-    const maxTokens = MODEL_MAX_TOKENS[OPENROUTER_MODELS.CLAUDE_4_5_SONNET];
+    const maxTokens = MODEL_MAX_TOKENS[editorEngine.state.selectedModel.model];
     const usedTokens = useMemo(() => {
         if (!usage) return 0;
         const input = usage.inputTokens ?? 0;
@@ -46,4 +48,4 @@ export const ChatContextWindow = ({ usage }: { usage: LanguageModelUsage }) => {
             </ContextContent>
         </Context>
     );
-};
+});

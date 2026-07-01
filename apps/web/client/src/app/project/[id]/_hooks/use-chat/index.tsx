@@ -4,7 +4,7 @@ import { useEditorEngine } from '@/components/store/editor';
 import { handleToolCall } from '@/components/tools';
 import { api } from '@/trpc/client';
 import { useChat as useAiChat } from '@ai-sdk/react';
-import { ChatType, type ChatMessage, type GitMessageCheckpoint, type MessageContext, type QueuedMessage } from '@onlook/models';
+import { ChatType, type ChatMessage, type GitMessageCheckpoint, type InitialModelPayload, type MessageContext, type QueuedMessage } from '@onlook/models';
 import { jsonClone } from '@onlook/utility';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, type FinishReason } from 'ai';
 import { usePostHog } from 'posthog-js/react';
@@ -24,6 +24,7 @@ export type EditMessage = (
 export type ProcessMessage = (
     content: string,
     type: ChatType,
+    modelConfig?: InitialModelPayload,
     messageId?: string,
 ) => Promise<ChatMessage | void>;
 
@@ -79,7 +80,7 @@ export function useChat({ conversationId, projectId, initialMessages }: UseChatP
     }, [messages]);
 
     const processMessage = useCallback(
-        async (content: string, type: ChatType, context?: MessageContext[]) => {
+        async (content: string, type: ChatType, modelConfig?: InitialModelPayload, context?: MessageContext[]) => {
             const messageContext = context || await editorEngine.chat.context.getContextByChatType(type);
             const newMessage = getUserChatMessageFromString(content, messageContext, conversationId);
             setMessages(jsonClone([...messagesRef.current, newMessage]));
@@ -89,6 +90,7 @@ export function useChat({ conversationId, projectId, initialMessages }: UseChatP
                     chatType: type,
                     conversationId,
                     context: messageContext,
+                    modelConfig,
                 },
             });
             void editorEngine.chat.conversation.generateTitle(content);
@@ -108,6 +110,7 @@ export function useChat({ conversationId, projectId, initialMessages }: UseChatP
             posthog.capture('user_send_message', { type });
 
             const context = await editorEngine.chat.context.getContextByChatType(type);
+            const modelConfig = editorEngine.state.selectedModel;
 
             const newMessage: QueuedMessage = {
                 id: uuidv4(),
@@ -125,12 +128,12 @@ export function useChat({ conversationId, projectId, initialMessages }: UseChatP
                 setQueuedMessages(prev => [newMessage, ...prev]);
             } else {
                 // No queue and not streaming - send immediately
-                return processMessage(content, type);
+                return processMessage(content, type, modelConfig);
             }
 
             return getUserChatMessageFromString(content, [], conversationId);
         },
-        [processMessage, posthog, editorEngine.chat.context, isStreaming, queuedMessages.length, conversationId],
+        [processMessage, posthog, editorEngine.chat.context, editorEngine.state, isStreaming, queuedMessages.length, conversationId],
     );
 
     const processMessageEdit = useCallback(
@@ -163,6 +166,7 @@ export function useChat({ conversationId, projectId, initialMessages }: UseChatP
                 body: {
                     chatType,
                     conversationId,
+                    modelConfig: editorEngine.state.selectedModel,
                 },
             });
 
@@ -170,6 +174,7 @@ export function useChat({ conversationId, projectId, initialMessages }: UseChatP
         },
         [
             editorEngine.chat.context,
+            editorEngine.state,
             regenerate,
             conversationId,
             setMessages,
@@ -190,7 +195,12 @@ export function useChat({ conversationId, projectId, initialMessages }: UseChatP
 
         try {
             const refreshedContext = await editorEngine.chat.context.getRefreshedContext(nextMessage.context);
-            await processMessage(nextMessage.content, nextMessage.type, refreshedContext);
+            await processMessage(
+                nextMessage.content,
+                nextMessage.type,
+                editorEngine.state.selectedModel,
+                refreshedContext,
+            );
 
             // Remove only after successful processing
             setQueuedMessages(prev => prev.slice(1));
@@ -199,7 +209,7 @@ export function useChat({ conversationId, projectId, initialMessages }: UseChatP
         } finally {
             isProcessingQueue.current = false;
         }
-    }, [queuedMessages, editorEngine.chat.context, processMessage, isStreaming]);
+    }, [queuedMessages, editorEngine.chat.context, editorEngine.state, processMessage, isStreaming]);
 
     const editMessage: EditMessage = useCallback(
         async (messageId: string, newContent: string, chatType: ChatType) => {

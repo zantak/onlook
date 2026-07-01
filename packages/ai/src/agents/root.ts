@@ -1,5 +1,12 @@
 import type { ToolCall } from '@ai-sdk/provider-utils';
-import { ChatType, LLMProvider, OPENROUTER_MODELS, type ChatMessage, type ModelConfig } from '@onlook/models';
+import {
+    ChatType,
+    LLMProvider,
+    MINIMAX_MODELS,
+    type ChatMessage,
+    type InitialModelPayload,
+    type ModelConfig
+} from '@onlook/models';
 import { NoSuchToolError, generateObject, smoothStream, stepCountIs, streamText, type ToolSet } from 'ai';
 import { convertToStreamMessages, getAskModeSystemPrompt, getCreatePageSystemPrompt, getSystemPrompt, getToolSetFromType, initModel } from '../index';
 
@@ -10,6 +17,7 @@ export const createRootAgentStream = ({
     userId,
     traceId,
     messages,
+    modelConfig,
 }: {
     chatType: ChatType;
     conversationId: string;
@@ -17,17 +25,18 @@ export const createRootAgentStream = ({
     userId: string;
     traceId: string;
     messages: ChatMessage[];
+    modelConfig?: InitialModelPayload;
 }) => {
-    const modelConfig = getModelFromType(chatType);
+    const resolvedModelConfig = getModelFromType(chatType, modelConfig);
     const systemPrompt = getSystemPromptFromType(chatType);
     const toolSet = getToolSetFromType(chatType);
     return streamText({
-        providerOptions: modelConfig.providerOptions,
+        providerOptions: resolvedModelConfig.providerOptions,
         messages: convertToStreamMessages(messages),
-        model: modelConfig.model,
+        model: resolvedModelConfig.model,
         system: systemPrompt,
         tools: toolSet,
-        headers: modelConfig.headers,
+        headers: resolvedModelConfig.headers,
         stopWhen: stepCountIs(20),
         experimental_repairToolCall: repairToolCall,
         experimental_transform: smoothStream(),
@@ -58,20 +67,23 @@ const getSystemPromptFromType = (chatType: ChatType): string => {
     }
 }
 
-const getModelFromType = (chatType: ChatType): ModelConfig => {
+const getModelFromType = (chatType: ChatType, override?: InitialModelPayload): ModelConfig => {
+    if (override) {
+        return initModel(override);
+    }
     switch (chatType) {
         case ChatType.CREATE:
         case ChatType.FIX:
             return initModel({
-                provider: LLMProvider.OPENROUTER,
-                model: OPENROUTER_MODELS.OPEN_AI_GPT_5,
+                provider: LLMProvider.MINIMAX,
+                model: MINIMAX_MODELS.MINIMAX_M3,
             });
         case ChatType.ASK:
         case ChatType.EDIT:
         default:
             return initModel({
-                provider: LLMProvider.OPENROUTER,
-                model: OPENROUTER_MODELS.CLAUDE_4_5_SONNET,
+                provider: LLMProvider.MINIMAX,
+                model: MINIMAX_MODELS.MINIMAX_M2_7,
             });
     }
 }
@@ -91,9 +103,13 @@ export const repairToolCall = async ({ toolCall, tools, error }: { toolCall: Too
         `Invalid parameter for tool ${toolCall.toolName} with args ${JSON.stringify(toolCall.input)}, attempting to fix`,
     );
 
+    // ponytail: repair path uses Minimax M2.7. generateObject on Minimax direct API
+    // is the #1 risk for this chantier; Ops validates on real traffic.
+    // Fallback plan if it fails: switch to OpenAI-compatible provider with a known-good
+    // model (e.g. openai/gpt-4o-mini via OPENROUTER) wrapped in try/catch.
     const { model } = initModel({
-        provider: LLMProvider.OPENROUTER,
-        model: OPENROUTER_MODELS.OPEN_AI_GPT_5_NANO,
+        provider: LLMProvider.MINIMAX,
+        model: MINIMAX_MODELS.MINIMAX_M2_7,
     });
 
     const { object: repairedArgs } = await generateObject({
